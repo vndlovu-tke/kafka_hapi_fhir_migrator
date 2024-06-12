@@ -1,9 +1,11 @@
 """Connect to kafka, consume messages, and post to HAPI FHIR server."""
 import json
 import logging
-import sys
+from typing import Generator
+import asyncio
+import aiohttp
+
 from confluent_kafka import Consumer, KafkaException, KafkaError
-import requests
 import time
 
 logging.basicConfig(level=logging.INFO)
@@ -35,10 +37,11 @@ def enrich_bundle(bundle: dict) -> dict:
     return bundle
 
 
-def post_to_hapi_fhir(fhir_url: str, fhir_bundle: list) -> None:
+async def post_to_hapi_fhir(fhir_url: str, fhir_bundle: list, session) -> None:
     """Post a bundle of messages to the HAPI FHIR server."""
 
     logging.info("Posting to HAPI FHIR")
+
 
     headers= {
       'Content-Type': 'application/fhir+json',
@@ -46,15 +49,16 @@ def post_to_hapi_fhir(fhir_url: str, fhir_bundle: list) -> None:
       'Authorization': 'Custom test',
     }
 
-    response = requests.post(fhir_url, json=fhir_bundle, headers=headers)
-    if response.status_code == 200:
+    
+    response = await session.post(fhir_url, json=fhir_bundle, headers=headers)
+    if response.status == 200:
         logging.info("Successfully posted to HAPI FHIR server")
     else:
-        logging.error(f"Failed to post to HAPI FHIR server: {response.status_code} - {response.text}")
-    
+        response_text = await response.text()
+        logging.error(f"Failed to post to HAPI FHIR server: {response.status} - {response_text}")
 
 
-def consume_messages(consumer: Consumer, topic: str) -> None:
+def consume_messages(consumer: Consumer, topic: str, batch_size: int) -> Generator:
     """Consume messages from the migration topic and post them to the HAPI FHIR server."""
 
     try:
@@ -63,6 +67,7 @@ def consume_messages(consumer: Consumer, topic: str) -> None:
 
         total_processed: int = 0
         empty_message_counter: int = 0
+        fhir_bundle_batch: list[dict] = []
 
         while running:
             if empty_message_counter == 10:
@@ -80,35 +85,50 @@ def consume_messages(consumer: Consumer, topic: str) -> None:
                     total_processed += 1
                     logging.info(f"Consumed messages: {total_processed}")
                     # Enrich message
-                    bundle = enrich_bundle(convert_to_json(msg.value()))
-                    post_to_hapi_fhir(HAPI_FHIR_URL, bundle)
-                    # quit()
+                    fhir_bundle_batch.append(enrich_bundle(convert_to_json(msg.value())))
+                    if len(fhir_bundle_batch) == batch_size:
+                        yield fhir_bundle_batch
+                        fhir_bundle_batch = []
 
     except Exception as e:
         logging.error(f"Error consuming messages: {e}")
     finally:
+        if fhir_bundle_batch:
+            yield fhir_bundle_batch
+
         logging.info(f"Finished, processed {total_processed} messages")
         consumer.close()
 
 
 
-def main(consumer: Consumer, topic: str) -> None:
+
+async def main(topic: str) -> None:
    
     
     logging.info("Starting main function")
+    tasks = []
     start = time.perf_counter()
-    consume_messages(consumer, topic)
+    batch_size = 100
 
-    elapsed = time.perf_counter() - start
-    logging.info(f"Elapsed time: {elapsed:0.2f} seconds")
-
-
-if __name__ == "__main__":
-     
     conf = {'bootstrap.servers': KAFKA_HOST,
         'group.id': KAFKA_GROUP_ID,
         'auto.offset.reset': 'smallest'
     }
 
     consumer = Consumer(conf)
-    main(consumer, TOPIC)
+    
+    
+    async with aiohttp.ClientSession() as session:
+
+        for batch in consume_messages(consumer, topic, batch_size):
+            tasks = [asyncio.create_task(post_to_hapi_fhir(HAPI_FHIR_URL, bundle, session)) for bundle in batch]
+
+            await asyncio.gather(*tasks)
+
+
+    elapsed = time.perf_counter() - start
+    logging.info(f"Elapsed time: {elapsed:0.2f} seconds")
+
+
+if __name__ == "__main__":
+    asyncio.run(main(TOPIC))
