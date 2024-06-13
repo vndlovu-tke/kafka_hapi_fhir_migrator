@@ -36,6 +36,15 @@ def enrich_bundle(bundle: dict) -> dict:
 
     return bundle
 
+def get_resource_order_index(resource_type: str) -> int:
+    """Get the index of the resource type in the resource order list."""
+    
+    resource_order = ["Organization", "Patient", "Encounter", "DiagnosticReport", "OperationOutcome"]
+    
+    try:
+        return resource_order.index(resource_type)
+    except ValueError:
+        return len(resource_order)
 
 async def post_to_hapi_fhir(fhir_url: str, fhir_bundle: list, session) -> None:
     """Post a bundle of messages to the HAPI FHIR server."""
@@ -56,6 +65,9 @@ async def post_to_hapi_fhir(fhir_url: str, fhir_bundle: list, session) -> None:
     else:
         response_text = await response.text()
         logging.error(f"Failed to post to HAPI FHIR server: {response.status} - {response_text}")
+        # TODO: Send to dead letter queue
+
+
 
 
 def consume_messages(consumer: Consumer, topic: str, batch_size: int) -> Generator:
@@ -87,6 +99,7 @@ def consume_messages(consumer: Consumer, topic: str, batch_size: int) -> Generat
                     # Enrich message
                     fhir_bundle_batch.append(enrich_bundle(convert_to_json(msg.value())))
                     if len(fhir_bundle_batch) == batch_size:
+                        fhir_bundle_batch.sort(key=lambda x: get_resource_order_index(x.get("entry")[0].get("resource").get("resourceType")))
                         yield fhir_bundle_batch
                         fhir_bundle_batch = []
 
@@ -108,7 +121,7 @@ async def main(topic: str) -> None:
     logging.info("Starting main function")
     tasks = []
     start = time.perf_counter()
-    batch_size = 100
+    batch_size = 50
 
     conf = {'bootstrap.servers': KAFKA_HOST,
         'group.id': KAFKA_GROUP_ID,
