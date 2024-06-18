@@ -1,10 +1,10 @@
 import json
 
-def convert_to_json(bundle):
+def convert_to_json(bundle: bytes) -> dict:
     return json.loads(bundle.decode('utf-8'))
 
 
-def enrich_bundle(bundle: dict) -> dict:
+def add_request_metadata(bundle: dict) -> dict:
     """Add FHIR Request metadata."""
 
     for entry in bundle.get("entry"):

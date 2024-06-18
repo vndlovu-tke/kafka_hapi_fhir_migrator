@@ -1,4 +1,5 @@
 """Connect to kafka, consume messages, and post to HAPI FHIR server."""
+import os
 import time
 import logging
 from typing import Generator
@@ -7,18 +8,19 @@ import aiohttp
 import aiofiles
 
 from kafka import send_to_kafka
-from utils import convert_to_json, enrich_bundle, get_resource_order_index
-from confluent_kafka import Consumer, KafkaException, KafkaError
+from utils import convert_to_json, add_request_metadata, get_resource_order_index
+from confluent_kafka import Consumer
+
 
 logging.basicConfig(level=logging.INFO)
 
-HAPI_FHIR_URL = "http://hapi-fhir:8080/fhir"
-HAPI_FHIR_BUNDLE_SIZE: int = 72
-TOPIC = "migration"
-KAFKA_HOST = "kafka-01:9092"
-KAFKA_GROUP_ID = "clickhouse-migration"
-ERROR_TOPIC = "migration-errors"
-HAPI_FHIR_BATCH_SIZE = 250
+HAPI_FHIR_URL = os.getenv("HAPI_FHIR_URL", "http://hapi-fhir:8080/fhir")
+HAPI_FHIR_BUNDLE_SIZE = os.getenv("HAPI_FHIR_BUNDLE_SIZE", 72)
+TOPIC = os.getenv("TOPIC", "migration")
+KAFKA_HOST = os.getenv("KAFKA_HOST", "kafka-01:9092")
+KAFKA_GROUP_ID = os.getenv("KAFKA_GROUP_ID", "clickhouse-migration")
+ERROR_TOPIC = os.getenv("ERROR_TOPIC", "migration-errors")
+HAPI_FHIR_BATCH_SIZE = os.getenv("HAPI_FHIR_BATCH_SIZE", 250)
 
 
 
@@ -59,7 +61,7 @@ async def post_to_hapi_fhir(fhir_url: str, fhir_bundle: dict, session) -> None:
 
 
 def consume_messages(consumer: Consumer, topic: str, batch_size: int) -> Generator:
-    """Consume messages from the migration topic and post them to the HAPI FHIR server."""
+    """Consume messages from the migration topic and return message batches to the caller."""
 
     try:
         logging.info("Consuming messages from migration")
@@ -86,7 +88,7 @@ def consume_messages(consumer: Consumer, topic: str, batch_size: int) -> Generat
                     total_processed += 1
                     logging.info(f"Consumed messages: {total_processed}")
                     # Enrich message
-                    fhir_bundle_batch.append(enrich_bundle(convert_to_json(msg.value())))
+                    fhir_bundle_batch.append(add_request_metadata(convert_to_json(msg.value())))
                     if len(fhir_bundle_batch) == batch_size:
                         fhir_bundle_batch.sort(key=lambda x: get_resource_order_index(x.get("entry")[0].get("resource").get("resourceType")))
                         yield fhir_bundle_batch

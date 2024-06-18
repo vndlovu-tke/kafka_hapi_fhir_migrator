@@ -16,6 +16,6 @@ def send_to_kafka(message: str, topic: str) -> None:
         producer.flush()
         logging.info(f"Sent message to Kafka topic: {topic}")
     except KafkaException as e:
-        logging.info(f"Failed to send message to Kafka: {e}")
+        logging.error(f"Kafka Error: Failed to send message to Kafka: {e}")
     except Exception as e:
-        logging.info(f"Failed to send message to Kafka: {e}")
+        logging.error(f"Unexpected error occurred: {e}")
