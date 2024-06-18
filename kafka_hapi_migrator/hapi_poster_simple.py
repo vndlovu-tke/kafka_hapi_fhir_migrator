@@ -14,15 +14,14 @@ from confluent_kafka import Consumer
 
 logging.basicConfig(level=logging.INFO)
 
+
 HAPI_FHIR_URL = os.getenv("HAPI_FHIR_URL", "http://hapi-fhir:8080/fhir")
 HAPI_FHIR_BUNDLE_SIZE = os.getenv("HAPI_FHIR_BUNDLE_SIZE", 72)
 TOPIC = os.getenv("TOPIC", "migration")
 KAFKA_HOST = os.getenv("KAFKA_HOST", "kafka-01:9092")
 KAFKA_GROUP_ID = os.getenv("KAFKA_GROUP_ID", "clickhouse-migration")
 ERROR_TOPIC = os.getenv("ERROR_TOPIC", "migration-errors")
-HAPI_FHIR_BATCH_SIZE = os.getenv("HAPI_FHIR_BATCH_SIZE", 250)
-
-
+HAPI_FHIR_BATCH_SIZE = os.getenv("HAPI_FHIR_BATCH_SIZE", 150)
 
 
 async def post_to_hapi_fhir(fhir_url: str, fhir_bundle: dict, session) -> None:
@@ -37,7 +36,6 @@ async def post_to_hapi_fhir(fhir_url: str, fhir_bundle: dict, session) -> None:
       'Authorization': 'Custom test',
     }
 
-    
     response = await session.post(fhir_url, json=fhir_bundle, headers=headers)
     if response.status == 200:
         logging.info("Successfully posted to HAPI FHIR server")
@@ -56,7 +54,6 @@ async def post_to_hapi_fhir(fhir_url: str, fhir_bundle: dict, session) -> None:
             await f.write("\n".join(fhir_resource_ids) + "\n")
         
         send_to_kafka(fhir_bundle, ERROR_TOPIC)
-
 
 
 
@@ -87,7 +84,8 @@ def consume_messages(consumer: Consumer, topic: str, batch_size: int) -> Generat
                 else:
                     total_processed += 1
                     logging.info(f"Consumed messages: {total_processed}")
-                    # Enrich message
+                    
+                    # Add request metadata to the message and append to the batch
                     fhir_bundle_batch.append(add_request_metadata(convert_to_json(msg.value())))
                     if len(fhir_bundle_batch) == batch_size:
                         fhir_bundle_batch.sort(key=lambda x: get_resource_order_index(x.get("entry")[0].get("resource").get("resourceType")))
@@ -104,8 +102,6 @@ def consume_messages(consumer: Consumer, topic: str, batch_size: int) -> Generat
         consumer.close()
 
 
-
-
 async def main(topic: str) -> None:
    
     
@@ -118,8 +114,7 @@ async def main(topic: str) -> None:
     }
 
     consumer = Consumer(conf)
-    
-    
+
     async with aiohttp.ClientSession() as session:
 
         for batch in consume_messages(consumer, topic, HAPI_FHIR_BATCH_SIZE):

@@ -9,3 +9,19 @@ The service does the following
 1. create a bundle to send to hapi fhir
 1. Save processed IDs to a text file
 1. Saves FHIR bundles that couldn't be posted to HAPI FHIR in a migration-errors Kafka topic
+
+## Steps to run
+
+- Build the image:
+
+```
+./build_image.sh
+```
+
+- Set the placement node in the `docker-compose.yml` file to the appropriate node.
+
+- Deploy into `migration` stack:
+
+```shell
+docker stack deploy -c docker/docker-compose.yml
+```

@@ -1,0 +1,28 @@
+version: '3.9'
+services:
+  kafka-hapi-migrator:
+    image: hapi-migration:latest1
+    networks:
+      kafka:
+      public:
+    deploy:
+      restart_policy:
+        condition: none
+      placement:
+        constraints:
+          - "node.labels.name==node-1"
+    command: python kafka_hapi_migrator/hapi_poster_simple.py
+    
+    volumes:
+      - type: bind
+        source: ../
+        target: /app
+  
+networks:
+  kafka:
+    name: kafka_public
+    external: true
+  public:
+    name: hapi-fhir_public
+    external: true
+  
