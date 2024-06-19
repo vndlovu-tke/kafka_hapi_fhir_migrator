@@ -10,7 +10,7 @@ services:
         condition: none
       placement:
         constraints:
-          - "node.labels.name==node-1"
+          - "node.labels.name==node-4"
     command: python kafka_hapi_migrator/hapi_poster_simple.py
     
     volumes:

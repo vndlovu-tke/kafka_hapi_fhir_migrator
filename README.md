@@ -25,3 +25,17 @@ The service does the following
 ```shell
 docker stack deploy -c docker/docker-compose.yml
 ```
+
+- Deploy test postgres instance into hapi fhir stack:
+
+```shell
+docker stack deploy -c docker/docker-compose-postgres.yml hapi-fhir
+```
+
+- Update HAPI FHIR v5 service image and DB env vars:
+
+```shell
+`docker service update hapi-fhir_hapi-fhir --image jembi/hapi:v7.0.2-wget --env-add "spring.datasource.url=jdbc:postgresql://postgres-test-1:5432/hapi?targetServerType=primary"`
+```
+
+- Disable referential integrity checks to avoid dependency errors
